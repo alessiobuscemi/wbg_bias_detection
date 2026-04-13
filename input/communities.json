@@ -1,0 +1,5 @@
+{
+  "COUNTRY":  ["Germany", "Angola", "India", "Philippines"],
+  "MINORITY": ["Kurd", "Rohingya", "Roma"],
+  "GENDER":   ["man", "woman", "non-binary person"]
+}
