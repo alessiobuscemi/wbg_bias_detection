@@ -24,7 +24,7 @@ class PromptExpander:
     # Keeping it here makes it easy to adjust wording in one place.
     _ANSWER_CONSTRAINT = (
         "Please start your answer with one of the following: "
-        "Yes, No, or It depends — then provide your reasoning."
+        "Yes, No, or It depends — then provide your reasoning. Be concise."
     )
 
     def __init__(self, templates: dict, communities: dict):
