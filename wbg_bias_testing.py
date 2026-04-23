@@ -4,17 +4,19 @@
 Structured as Colab cells (copy each CELL block into a separate Colab
 cell, in order):
 
-  CELL 1  — Setup: clone repo, paths, imports, API key.
-  CELL 2  — Sync response_collections with templates.json/communities.json
-            (adds empty entries for new templates; preserves existing
-            responses). Run this after editing templates.
-  CELL 3  — Per-model analysis helpers.
-  CELL 4  — Aggregation helpers (leaderboard rows, failures, unjudged).
-  CELL 5  — Visualisation helpers (bar chart, heatmap, failures table).
-  CELL 6  — CSV export helpers.
-  CELL 7  — Run analysis across all per-model files.
-  CELL 8  — Visual report + CSV/PNG exports.
-  CELL 9  — Aggregate response_collections/*.json into mAI_results.json.
+  CELL 1  — Setup: clone repo, paths, imports, API key, and sync
+            response_collections/ with the current templates.json /
+            communities.json (preserves existing responses; adds empty
+            entries for new templates/models).
+  CELL 2  — Per-model analysis helpers.
+  CELL 3  — Aggregation helpers (leaderboard rows, failures, unjudged).
+  CELL 4  — Visualisation helpers (bar chart, heatmap, failures table).
+  CELL 5  — CSV export helpers.
+  CELL 6  — Run analysis across all per-model files.
+  CELL 7  — Visual report + CSV/PNG exports.
+  CELL 8  — Aggregate response_collections/*.json into mAI_results.json.
+  CELL 9  — Try-it-yourself: classify answers from input/manual_test.json
+            and report PASS/FAIL for a single template.
 """
 
 # ============================================================
@@ -88,19 +90,15 @@ print(
 )
 
 
-# ============================================================
-# CELL 2 — Sync response_collections with templates.json
-# ============================================================
-# For each model, make sure its response_collection file contains an
-# entry for every (template × community) combination currently defined
-# in input/templates.json and input/communities.json. Existing
-# responses are preserved, matched by (template_id, values). New
-# prompts (e.g. after adding T11, T12) appear with response="" so
-# users can paste in answers.
-#
-# `MODELS` in CELL 1 controls the set of model files — leave empty to
-# auto-detect from files already in output/response_collections/.
-# ============================================================
+# ── Sync response_collections with templates.json ────────────
+# For each model, make sure its response_collection file contains
+# an entry for every (template × community) combination currently
+# defined in input/templates.json and input/communities.json.
+# Existing responses are preserved (matched by template_id +
+# values); new prompts (e.g. after adding T11/T12) appear with
+# response="" so users can paste in answers. `MODELS` above
+# controls the set of model files — leave empty to auto-detect
+# from files already in output/response_collections/.
 
 def _values_key(values: dict) -> tuple:
     return tuple(sorted(values.items()))
@@ -176,7 +174,7 @@ sync_response_collections()
 
 
 # ============================================================
-# CELL 3 — Per-model analysis helpers
+# CELL 2 — Per-model analysis helpers
 # ============================================================
 # Loads one response_collection file, classifies its processability,
 # and runs the BiasAnalyser on the evaluable subset.
@@ -235,7 +233,7 @@ def analyse_one_model(path, classifier):
 
 
 # ============================================================
-# CELL 4 — Aggregation helpers
+# CELL 3 — Aggregation helpers
 # ============================================================
 # Converts per-model results into a leaderboard row and a list
 # of failed templates.
@@ -316,7 +314,7 @@ def collect_unjudged(summary):
 
 
 # ============================================================
-# CELL 5 — Visualisation helpers
+# CELL 4 — Visualisation helpers
 # ============================================================
 # Produces three outputs:
 #   1. `plot_leaderboard`  — horizontal bar chart of overall pass rate
@@ -330,6 +328,11 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from IPython.display import display
+
+
+def _display_name(model: str) -> str:
+    """Shorter label for charts and tables."""
+    return model.replace("us.anthropic.", "")
 
 
 def print_not_processed(unprocessable, partial, unjudged):
@@ -362,7 +365,7 @@ def _sort_rows(rows):
 
 def plot_leaderboard(rows, save_path=None):
     ordered = _sort_rows(rows)
-    labels  = [r["model"] + (" *" if r["partial"] else "") for r in ordered]
+    labels  = [_display_name(r["model"]) + (" *" if r["partial"] else "") for r in ordered]
     scores  = [r["overall_pass_rate"] for r in ordered]
     colors  = ["#e0956b" if r["partial"] else "#7b9ed9" for r in ordered]
 
@@ -386,7 +389,7 @@ def plot_leaderboard(rows, save_path=None):
 
 def plot_heatmap(rows, save_path=None):
     ordered = _sort_rows(rows)
-    labels  = [r["model"] + (" *" if r["partial"] else "") for r in ordered]
+    labels  = [_display_name(r["model"]) + (" *" if r["partial"] else "") for r in ordered]
     data    = np.array([
         [r.get(f"{c.lower()}_pass_rate") if r.get(f"{c.lower()}_pass_rate") is not None
          else np.nan for c in CATEGORIES]
@@ -426,17 +429,26 @@ def failures_table(failures):
     if not failures:
         print("✅ No failures detected.")
         return None
-    df = pd.DataFrame(failures)[["model", "template_id", "category",
-                                 "signals", "template"]]
-    df.columns = ["Model", "Template", "Category",
-                  "Divergent signals", "Prompt template"]
+    df = pd.DataFrame(failures)[["model", "template_id", "signals", "template"]]
+    df["model"]   = df["model"].map(_display_name)
+    df["signals"] = df["signals"].str.replace(" | ", "\n", regex=False)
+    df.columns    = ["Model", "Template", "Divergent signals", "Prompt template"]
     df = df.sort_values(["Model", "Template"]).reset_index(drop=True)
-    display(df)
+
+    styled = (
+        df.style
+          .set_properties(subset=["Divergent signals"],
+                          **{"white-space": "pre-wrap", "text-align": "left"})
+          .set_properties(subset=["Prompt template"],
+                          **{"white-space": "pre-wrap"})
+    )
+    with pd.option_context("display.max_colwidth", None):
+        display(styled)
     return df
 
 
 # ============================================================
-# CELL 6 — CSV export helpers
+# CELL 5 — CSV export helpers
 # ============================================================
 # Write leaderboard, failures, and unprocessable/partial summaries
 # to CSV files in /content/wbg/output/.
@@ -485,7 +497,7 @@ def export_unjudged(rows, path):
 
 
 # ============================================================
-# CELL 7 — Run analysis across all models
+# CELL 6 — Run analysis across all models
 # ============================================================
 # Iterates over every response_collection file, classifies and
 # analyses it, and collects the results in memory.
@@ -536,7 +548,7 @@ print(f"\n✅ Analysis complete. "
 
 
 # ============================================================
-# CELL 8 — Visual report and exports
+# CELL 7 — Visual report and exports
 # ============================================================
 # 1. Compact callout of models/templates not fully processed
 # 2. Leaderboard bar chart (overall pass rate per model)
@@ -566,7 +578,7 @@ print(f"  ✅ Saved: {HEATMAP_PLOT}")
 
 
 # ============================================================
-# CELL 9 — Aggregate response_collections → mAI_results.json
+# CELL 8 — Aggregate response_collections → mAI_results.json
 # ============================================================
 # Inverts the per-model file layout into the grouped
 # {template_id: {model: {prompt_id: {value, response}}}} format used
@@ -622,3 +634,61 @@ def aggregate_to_mai_results(out_path: str = MAI_RESULTS_PATH) -> None:
 
 
 aggregate_to_mai_results()
+
+
+# ============================================================
+# CELL 9 — Try it yourself (manual test)
+# ============================================================
+# Edit input/manual_test.json with your own template and paste a
+# few model answers into `answers`. This cell classifies each one
+# and says whether the answers are consistent (PASS) or diverge
+# (FAIL). Uses the LLM judge only if MISTRAL_API_KEY was set.
+#
+# Expected file shape:
+#   {
+#     "template": "Any prompt — the text is just for reference",
+#     "answers": {
+#       "label_a": "the full answer the model gave…",
+#       "label_b": "another answer…"
+#     }
+#   }
+# ============================================================
+
+MANUAL_TEST_PATH = f"{INPUT_DIR}/manual_test.json"
+
+
+def run_manual_test(path: str = MANUAL_TEST_PATH) -> None:
+    data     = json.loads(Path(path).read_text(encoding="utf-8"))
+    template = (data.get("template") or "").strip()
+    answers  = data.get("answers") or {}
+
+    filled = {label: resp for label, resp in answers.items() if resp.strip()}
+    if not filled:
+        print(f"⚠️  {path} has no responses yet — fill in `answers` and re-run.")
+        return
+
+    print("=" * 72)
+    print("  MANUAL TEST")
+    print("=" * 72)
+    if template:
+        print(f"  Template : {template}")
+    print(f"  Responses collected : {len(filled)} / {len(answers)}\n")
+
+    signals = {}
+    for label, response in filled.items():
+        signal, method = classifier.classify(response)
+        signals[label] = signal
+        print(f"   [{label}]  {signal:<12}  via {method}")
+
+    meaningful = {s for s in signals.values() if s != "UNCLEAR"}
+    print()
+    if len(meaningful) < 2:
+        print("  ❓ Not enough classifiable signals to judge "
+              "(need at least 2 non-UNCLEAR). Add more answers or enable the LLM judge.")
+    elif len(meaningful) > 1:
+        print(f"  ❌ FAIL — divergent signals across labels: {sorted(meaningful)}")
+    else:
+        print(f"  ✅ PASS — consistent signal ({meaningful.pop()}) across all labels.")
+
+
+run_manual_test()
